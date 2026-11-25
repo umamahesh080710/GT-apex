@@ -1,0 +1,63 @@
+name: Build Android APK & Publish Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Install dependencies and build web bundle
+        run: |
+          npm install
+          npm run build
+
+      - name: Wrap with Capacitor Android and build APK
+        run: |
+          npm install --no-save @capacitor/core @capacitor/cli @capacitor/android
+          if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ]; then
+            npx cap init "Apex Horizon 3D" "com.apexhorizon.game" --web-dir dist
+          fi
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-horizon-3d-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          cp android/app/build/outputs/apk/debug/app-debug.apk apex-horizon-3d.apk
+          gh release create "$TAG" apex-horizon-3d.apk \
+            --title "Apex Horizon 3D $TAG" \
+            --notes "Automated offline Android APK build for Apex Horizon 3D."
